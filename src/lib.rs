@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(get_many_mut)]
+#![feature(bigint_helper_methods)]
 #![forbid(unsafe_code)]
 
 use cfg_if::cfg_if;
@@ -31,7 +32,7 @@ pub struct I<const W: usize> {
 }
 
 impl<const W: usize> I<W> {
-    pub const BITS: Option<usize> = W.checked_mul(8);
+    pub const BITS: Option<usize> = W.checked_mul(Chunk::BITS as usize);
     pub const MIN: Self = I {
         chunks: {
             let mut chunks = [0; W];
@@ -110,10 +111,7 @@ impl<const W: usize> I<W> {
             let result = acc
                 .checked_add(chunk_trailing_zeros)
                 .expect("positive overflow");
-            match all_zeros {
-                true => ControlFlow::Continue(result),
-                false => ControlFlow::Break(result),
-            }
+            break_if(!all_zeros, result)
         }))
     }
     pub fn trailing_ones_u64(self) -> u64 {
@@ -137,7 +135,7 @@ impl<const W: usize> I<W> {
         let mut iter = izip!(self.chunks, rhs.chunks, &mut chunks);
         let (last_chunk_l, last_chunk_r, last_dest) = iter.next_back().unwrap();
         carry = iter.fold(carry, |mut carry, (chunk_l, chunk_r, dest)| {
-            (*dest, carry) = carrying_add_chunk(chunk_l, chunk_r, carry);
+            (*dest, carry) = chunk_l.carrying_add(chunk_r, carry);
             carry
         });
         (*last_dest, carry) = carrying_add_chunk_as_signed(last_chunk_l, last_chunk_r, carry);
@@ -157,7 +155,7 @@ impl<const W: usize> I<W> {
         self.carrying_add(rhs, false).0
     }
     pub fn split_shl(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
-        assert!(bit_offset < Chunk::BITS as u8);
+        assert!(bit_offset < Chunk::BITS as ChunkW);
         if chunk_offset == 0 {
             self.chunks.iter_mut().fold(0, |mut infill, chunk| {
                 (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
@@ -174,17 +172,77 @@ impl<const W: usize> I<W> {
                     .unwrap();
                 (*dest, infill) = shl_chunk_full(*src, bit_offset, infill);
             }
-            self.chunks[0..chunk_offset].fill(0);
+            self.chunks[..chunk_offset].fill(0);
             self
         }
     }
+    pub fn split_shr(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+        assert!(bit_offset < Chunk::BITS as ChunkW);
+        if chunk_offset == 0 {
+            self.chunks.iter_mut().rfold(0, |mut infill, chunk| {
+                (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+                infill
+            });
+            self
+        } else {
+            let mut infill = 0;
+            for i in 0..W - chunk_offset {
+                let [src, dest] = self
+                    .chunks
+                    .get_many_mut([i + chunk_offset, i])
+                    .ok()
+                    .unwrap();
+                (*dest, infill) = shr_chunk_full(*src, bit_offset, infill);
+            }
+            self.chunks[W - 1 - chunk_offset..].fill(0);
+            self
+        }
+    }
+    pub fn shl_u64(self, shamt: u64) -> Self {
+        let (chunk_offset, bit_offset) = (shamt / Chunk::BITS as u64, shamt % Chunk::BITS as u64);
+        self.split_shl(chunk_offset as usize, bit_offset as ChunkW)
+    }
+    pub fn shr_u64(self, shamt: u64) -> Self {
+        let (chunk_offset, bit_offset) = (shamt / Chunk::BITS as u64, shamt % Chunk::BITS as u64);
+        self.split_shr(chunk_offset as usize, bit_offset as ChunkW)
+    }
     pub fn split_rotate_left(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+        assert!(bit_offset < Chunk::BITS as ChunkW);
         self.chunks.rotate_right(chunk_offset);
         let infill = self.chunks.iter_mut().fold(0, |mut infill, chunk| {
             (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
             infill
         });
         self.chunks[0] |= infill;
+        self
+    }
+    pub fn split_rotate_right(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+        assert!(bit_offset < Chunk::BITS as ChunkW);
+        self.chunks.rotate_left(chunk_offset);
+        let infill = self.chunks.iter_mut().rfold(0, |mut infill, chunk| {
+            (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+            infill
+        });
+        self.chunks[W - 1] |= infill;
+        self
+    }
+    pub fn rotate_left_u64(self, shamt: u64) -> Self {
+        let (chunk_offset, bit_offset) = (shamt / Chunk::BITS as u64, shamt % Chunk::BITS as u64);
+        self.split_rotate_left(chunk_offset as usize, bit_offset as ChunkW)
+    }
+    pub fn rotate_right_u64(self, shamt: u64) -> Self {
+        let (chunk_offset, bit_offset) = (shamt / Chunk::BITS as u64, shamt % Chunk::BITS as u64);
+        self.split_rotate_right(chunk_offset as usize, bit_offset as ChunkW)
+    }
+    pub fn swap_bytes(mut self) -> Self {
+        self.chunks.reverse();
+        self
+    }
+    pub fn swap_bits(mut self) -> Self {
+        self.chunks.reverse();
+        for chunk in &mut self.chunks {
+            *chunk = chunk.reverse_bits();
+        }
         self
     }
 }
@@ -203,16 +261,9 @@ fn break_if<T>(do_break: bool, value: T) -> ControlFlow<T, T> {
     }
 }
 
-fn carrying_add_chunk(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
-    let (a, b) = lhs.overflowing_add(rhs);
-    let (c, d) = a.overflowing_add(carry as Chunk);
-    (c, b || d)
-}
-
 fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
-    let (a, b) = (lhs as IChunk).overflowing_add(rhs as IChunk);
-    let (c, d) = a.overflowing_add(carry as IChunk);
-    (c as Chunk, b != d)
+    let (result, carry) = (lhs as IChunk).carrying_add(rhs as IChunk, carry);
+    (result as Chunk, carry)
 }
 
 fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
@@ -222,6 +273,17 @@ fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) 
         (
             value << shamt | infill,
             (chunk_mask(0, shamt) & value) >> (Chunk::BITS as ChunkW - shamt),
+        )
+    }
+}
+
+fn shr_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
+    if shamt == 0 {
+        (value | infill, 0)
+    } else {
+        (
+            value >> shamt | infill,
+            (chunk_mask(shamt, 0) & value) << (Chunk::BITS as ChunkW - shamt),
         )
     }
 }
@@ -248,6 +310,7 @@ impl Display for ParseIntError {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum IntErrorKind {
     Empty,
     InvalidDigit,
