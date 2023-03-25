@@ -25,10 +25,8 @@ cfg_if! {
 }
 
 mod common;
-mod error;
 mod i;
 mod u;
 
-pub use error::{IntErrorKind, ParseIntError};
 pub use i::I;
 pub use u::U;
