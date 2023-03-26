@@ -1,3 +1,5 @@
+use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
+
 use crate::{
     common::{
         count_ones_chunks_u64, count_zeros_chunks_u64, leading_ones_chunks_u64,
@@ -116,5 +118,23 @@ impl<const W: usize> U<W> {
             *chunk = chunk.reverse_bits();
         }
         self
+    }
+    pub fn overflowing_add_signed(self, rhs: I<W>) -> (Self, bool) {
+        let (result, overflow) = self.overflowing_add(rhs.reinterpret_unsigned());
+        (result, overflow ^ (rhs.lt(I::ZERO)))
+    }
+    pub fn cmp(self, rhs: Self) -> Ordering {
+        match zip(self.chunks, rhs.chunks).try_rfold((), |(), (chunk_l, chunk_r)| {
+            match chunk_l.cmp(&chunk_r) {
+                Ordering::Equal => ControlFlow::Continue(()),
+                order => ControlFlow::Break(order),
+            }
+        }) {
+            ControlFlow::Continue(()) => Ordering::Equal,
+            ControlFlow::Break(order) => order,
+        }
+    }
+    pub fn lt(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_lt()
     }
 }

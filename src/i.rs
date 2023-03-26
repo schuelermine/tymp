@@ -1,9 +1,11 @@
+use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
+
 use crate::{
     common::{
-        carrying_add_chunk_as_signed, count_ones_chunks_u64, count_zeros_chunks_u64,
-        leading_ones_chunks_u64, leading_zeros_chunks_u64, split_rotate_left_chunks,
-        split_rotate_right_chunks, split_shl_chunks, split_shr_chunks, trailing_ones_chunks_u64,
-        trailing_zeros_chunks_u64,
+        carrying_add_chunk_as_signed, cmp_chunk_as_signed, count_ones_chunks_u64,
+        count_zeros_chunks_u64, leading_ones_chunks_u64, leading_zeros_chunks_u64,
+        split_rotate_left_chunks, split_rotate_right_chunks, split_shl_chunks, split_shr_chunks,
+        trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
     },
     Chunk, ChunkW, U,
 };
@@ -134,5 +136,28 @@ impl<const W: usize> I<W> {
             *chunk = chunk.reverse_bits();
         }
         self
+    }
+    pub fn overflowing_add_unsigned(self, rhs: U<W>) -> (Self, bool) {
+        let rhs = rhs.reinterpret_signed();
+        let (result, overflow) = self.overflowing_add(rhs);
+        (result, overflow ^ rhs.lt(Self::ZERO))
+    }
+    pub fn cmp(self, rhs: Self) -> Ordering {
+        let mut iter = zip(self.chunks, rhs.chunks);
+        let (chunk_l, chunk_r) = iter.next_back().unwrap();
+        match cmp_chunk_as_signed(chunk_l, chunk_r) {
+            Ordering::Equal => (),
+            order => return order,
+        }
+        match iter.try_rfold((), |(), (chunk_l, chunk_r)| match chunk_l.cmp(&chunk_r) {
+            Ordering::Equal => ControlFlow::Continue(()),
+            order => ControlFlow::Break(order),
+        }) {
+            ControlFlow::Continue(()) => Ordering::Equal,
+            ControlFlow::Break(order) => order,
+        }
+    }
+    pub fn lt(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_lt()
     }
 }

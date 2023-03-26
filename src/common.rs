@@ -1,7 +1,6 @@
 use crate::{Chunk, ChunkW, IChunk};
-use core::ops::ControlFlow;
+use core::{cmp::Ordering, ops::ControlFlow};
 
-#[inline]
 pub fn get<T>(control_flow: ControlFlow<T, T>) -> T {
     match control_flow {
         ControlFlow::Continue(x) => x,
@@ -9,7 +8,6 @@ pub fn get<T>(control_flow: ControlFlow<T, T>) -> T {
     }
 }
 
-#[inline]
 fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     match cond {
         true => ControlFlow::Continue(value),
@@ -17,13 +15,11 @@ fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     }
 }
 
-#[inline]
 pub fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
     let (result, carry) = (lhs as IChunk).carrying_add(rhs as IChunk, carry);
     (result as Chunk, carry)
 }
 
-#[inline]
 pub fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
     match shamt == 0 {
         true => (value | infill, 0),
@@ -34,7 +30,6 @@ pub fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chu
     }
 }
 
-#[inline]
 pub fn shr_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
     if shamt == 0 {
         (value | infill, 0)
@@ -46,12 +41,10 @@ pub fn shr_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chu
     }
 }
 
-#[inline]
 fn chunk_mask(zeros_l: ChunkW, zeros_r: ChunkW) -> Chunk {
     Chunk::MAX << zeros_r & Chunk::MAX >> zeros_l
 }
 
-#[inline]
 pub fn count_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     chunks.into_iter().fold(0, |count, chunk| {
         count
@@ -60,7 +53,6 @@ pub fn count_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     })
 }
 
-#[inline]
 pub fn count_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     chunks.into_iter().fold(0, |count, chunk| {
         count
@@ -69,7 +61,6 @@ pub fn count_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     })
 }
 
-#[inline]
 pub fn leading_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     get(chunks.into_iter().try_rfold(0, |count: u64, chunk| {
         let all_zeros = chunk == 0;
@@ -84,7 +75,6 @@ pub fn leading_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     }))
 }
 
-#[inline]
 pub fn leading_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     get(chunks.into_iter().try_rfold(0, |count: u64, chunk| {
         let all_ones = chunk == Chunk::MAX;
@@ -99,7 +89,6 @@ pub fn leading_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     }))
 }
 
-#[inline]
 pub fn trailing_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     get(chunks.into_iter().try_fold(0, |count: u64, chunk| {
         let all_zeros = chunk == 0;
@@ -114,7 +103,6 @@ pub fn trailing_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     }))
 }
 
-#[inline]
 pub fn trailing_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     get(chunks.into_iter().try_fold(0, |count: u64, chunk| {
         let all_ones = chunk == Chunk::MAX;
@@ -129,7 +117,6 @@ pub fn trailing_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
     }))
 }
 
-#[inline]
 pub fn split_shl_chunks<const W: usize>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
@@ -150,7 +137,6 @@ pub fn split_shl_chunks<const W: usize>(
     }
 }
 
-#[inline]
 pub fn split_shr_chunks<const W: usize>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
@@ -195,4 +181,8 @@ pub fn split_rotate_right_chunks<const W: usize>(
         infill
     });
     chunks[W - 1] |= infill;
+}
+
+pub fn cmp_chunk_as_signed(lhs: Chunk, rhs: Chunk) -> Ordering {
+    (lhs as IChunk).cmp(&(rhs as IChunk))
 }
