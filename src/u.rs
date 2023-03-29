@@ -137,4 +137,19 @@ impl<const W: usize> U<W> {
     pub fn lt(self, rhs: Self) -> bool {
         self.cmp(rhs).is_lt()
     }
+    pub fn le(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ne()
+    }
+    pub fn gt(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_gt()
+    }
+    pub fn ge(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ge()
+    }
+    pub fn eq(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_eq()
+    }
+    pub fn ne(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ne()
+    }
 }

@@ -15,34 +15,24 @@ fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     }
 }
 
-pub fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
-    let (result, carry) = (lhs as IChunk).carrying_add(rhs as IChunk, carry);
-    (result as Chunk, carry)
-}
-
 pub fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
     match shamt == 0 {
         true => (value | infill, 0),
         false => (
             value << shamt | infill,
-            (chunk_mask(0, shamt) & value) >> (Chunk::BITS as ChunkW - shamt),
+            (Chunk::MAX << shamt & value) >> (Chunk::BITS as ChunkW - shamt),
         ),
     }
 }
 
 pub fn shr_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
-    if shamt == 0 {
-        (value | infill, 0)
-    } else {
-        (
+    match shamt == 0 {
+        true => (value | infill, 0),
+        false => (
             value >> shamt | infill,
-            (chunk_mask(shamt, 0) & value) << (Chunk::BITS as ChunkW - shamt),
-        )
+            (Chunk::MAX >> shamt & value) << (Chunk::BITS as ChunkW - shamt),
+        ),
     }
-}
-
-fn chunk_mask(zeros_l: ChunkW, zeros_r: ChunkW) -> Chunk {
-    Chunk::MAX << zeros_r & Chunk::MAX >> zeros_l
 }
 
 pub fn count_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {

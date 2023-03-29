@@ -2,12 +2,12 @@ use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
 
 use crate::{
     common::{
-        carrying_add_chunk_as_signed, cmp_chunk_as_signed, count_ones_chunks_u64,
-        count_zeros_chunks_u64, leading_ones_chunks_u64, leading_zeros_chunks_u64,
-        split_rotate_left_chunks, split_rotate_right_chunks, split_shl_chunks, split_shr_chunks,
-        trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
+        cmp_chunk_as_signed, count_ones_chunks_u64, count_zeros_chunks_u64,
+        leading_ones_chunks_u64, leading_zeros_chunks_u64, split_rotate_left_chunks,
+        split_rotate_right_chunks, split_shl_chunks, split_shr_chunks, trailing_ones_chunks_u64,
+        trailing_zeros_chunks_u64,
     },
-    Chunk, ChunkW, U,
+    Chunk, ChunkW, IChunk, U,
 };
 use itertools::izip;
 
@@ -160,4 +160,24 @@ impl<const W: usize> I<W> {
     pub fn lt(self, rhs: Self) -> bool {
         self.cmp(rhs).is_lt()
     }
+    pub fn le(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ne()
+    }
+    pub fn gt(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_gt()
+    }
+    pub fn ge(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ge()
+    }
+    pub fn eq(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_eq()
+    }
+    pub fn ne(self, rhs: Self) -> bool {
+        self.cmp(rhs).is_ne()
+    }
+}
+
+fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
+    let (result, carry) = (lhs as IChunk).carrying_add(rhs as IChunk, carry);
+    (result as Chunk, carry)
 }
