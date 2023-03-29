@@ -15,6 +15,12 @@ fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     }
 }
 
+pub fn carrying_add_chunk(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
+    let (a, b) = lhs.overflowing_add(rhs);
+    let (c, d) = a.overflowing_add(carry as Chunk);
+    (c, b || d)
+}
+
 pub fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
     match shamt == 0 {
         true => (value | infill, 0),
@@ -118,11 +124,14 @@ pub fn split_shl_chunks<const W: usize>(
             infill
         });
     } else {
-        let mut infill = 0;
-        for i in 0..W - chunk_offset {
-            let [src, dest] = chunks.get_many_mut([i, i + chunk_offset]).ok().unwrap();
-            (*dest, infill) = shl_chunk_full(*src, bit_offset, infill);
-        }
+        chunks.rotate_right(chunk_offset);
+        chunks
+            .iter_mut()
+            .skip(chunk_offset)
+            .fold(0, |mut infill, chunk| {
+                (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
+                infill
+            });
         chunks[..chunk_offset].fill(0);
     }
 }
@@ -138,11 +147,15 @@ pub fn split_shr_chunks<const W: usize>(
             infill
         });
     } else {
-        let mut infill = 0;
-        for i in 0..W - chunk_offset {
-            let [src, dest] = chunks.get_many_mut([i + chunk_offset, i]).ok().unwrap();
-            (*dest, infill) = shr_chunk_full(*src, bit_offset, infill);
-        }
+        chunks.rotate_left(chunk_offset);
+        chunks
+            .iter_mut()
+            .rev()
+            .skip(chunk_offset)
+            .fold(0, |mut infill, chunk| {
+                (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+                infill
+            });
         chunks[W - 1 - chunk_offset..].fill(0);
     }
 }

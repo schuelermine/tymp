@@ -2,7 +2,7 @@ use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
 
 use crate::{
     common::{
-        cmp_chunk_as_signed, count_ones_chunks_u64, count_zeros_chunks_u64,
+        carrying_add_chunk, cmp_chunk_as_signed, count_ones_chunks_u64, count_zeros_chunks_u64,
         leading_ones_chunks_u64, leading_zeros_chunks_u64, split_rotate_left_chunks,
         split_rotate_right_chunks, split_shl_chunks, split_shr_chunks, trailing_ones_chunks_u64,
         trailing_zeros_chunks_u64,
@@ -71,7 +71,7 @@ impl<const W: usize> I<W> {
         let mut iter = izip!(self.chunks, rhs.chunks, &mut chunks);
         let (last_chunk_l, last_chunk_r, last_dest) = iter.next_back().unwrap();
         carry = iter.fold(carry, |mut carry, (chunk_l, chunk_r, dest)| {
-            (*dest, carry) = chunk_l.carrying_add(chunk_r, carry);
+            (*dest, carry) = carrying_add_chunk(chunk_l, chunk_r, carry);
             carry
         });
         (*last_dest, carry) = carrying_add_chunk_as_signed(last_chunk_l, last_chunk_r, carry);
@@ -178,6 +178,7 @@ impl<const W: usize> I<W> {
 }
 
 fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
-    let (result, carry) = (lhs as IChunk).carrying_add(rhs as IChunk, carry);
-    (result as Chunk, carry)
+    let (a, b) = (lhs as IChunk).overflowing_add(rhs as IChunk);
+    let (c, d) = a.overflowing_add(carry as IChunk);
+    (c as Chunk, b != d)
 }

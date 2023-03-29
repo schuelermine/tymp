@@ -1,6 +1,4 @@
 #![no_std]
-#![feature(get_many_mut)]
-#![feature(bigint_helper_methods)]
 #![forbid(unsafe_code)]
 
 use cfg_if::cfg_if;

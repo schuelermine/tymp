@@ -2,7 +2,7 @@ use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
 
 use crate::{
     common::{
-        count_ones_chunks_u64, count_zeros_chunks_u64, leading_ones_chunks_u64,
+        carrying_add_chunk, count_ones_chunks_u64, count_zeros_chunks_u64, leading_ones_chunks_u64,
         leading_zeros_chunks_u64, split_rotate_left_chunks, split_rotate_right_chunks,
         split_shl_chunks, split_shr_chunks, trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
     },
@@ -53,7 +53,7 @@ impl<const W: usize> U<W> {
         let carry = izip!(self.chunks, rhs.chunks, &mut chunks).fold(
             carry,
             |mut carry, (chunk_l, chunk_r, dest)| {
-                (*dest, carry) = chunk_l.carrying_add(chunk_r, carry);
+                (*dest, carry) = carrying_add_chunk(chunk_l, chunk_r, carry);
                 carry
             },
         );
