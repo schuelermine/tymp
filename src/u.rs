@@ -20,6 +20,13 @@ impl<const W: usize> U<W> {
     pub const BITS: Option<usize> = W.checked_mul(Chunk::BITS as usize);
     pub const MIN: Self = U { chunks: [0; W] };
     pub const ZERO: Self = Self::MIN;
+    pub const ONE: Self = U {
+        chunks: {
+            let mut chunks = [0; W];
+            chunks[0] = 1;
+            chunks
+        },
+    };
     pub const MAX: Self = U {
         chunks: [Chunk::MAX; W],
     };
@@ -128,7 +135,7 @@ impl<const W: usize> U<W> {
         let mut hi = [0; W];
         let mut lo = [0; W];
         for (chunk_l, chunk_carry) in zip(self.chunks, carry.chunks) {
-            zip(rhs.chunks, &mut hi).fold(
+            let (chunk_carry, carry) = zip(rhs.chunks, &mut hi).fold(
                 (chunk_carry, false),
                 |(chunk_carry, mut carry), (chunk_r, dest)| {
                     let (result, chunk_carry) = carrying_mul_chunks(chunk_l, chunk_r, chunk_carry);
@@ -136,7 +143,7 @@ impl<const W: usize> U<W> {
                     (chunk_carry, carry)
                 },
             );
-            shr_chunks_over(&mut lo, &mut hi, 1);
+            shr_chunks_over(&mut lo, &mut hi, chunk_carry + carry as Chunk);
         }
         (U { chunks: lo }, U { chunks: hi })
     }

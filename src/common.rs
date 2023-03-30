@@ -189,12 +189,12 @@ pub fn split_rotate_right_chunks<const W: usize>(
 pub fn shr_chunks_over<const W: usize>(
     chunks_lo: &mut [Chunk; W],
     chunks_hi: &mut [Chunk; W],
-    chunk_offset: usize,
+    fill: Chunk,
 ) {
-    chunks_hi.rotate_left(chunk_offset);
-    chunks_lo.rotate_left(chunk_offset);
-    chunks_hi[W - chunk_offset..].copy_from_slice(&chunks_lo[W - chunk_offset..]);
-    chunks_lo[W - chunk_offset..].fill(0);
+    chunks_lo.rotate_left(1);
+    chunks_hi.rotate_left(1);
+    chunks_lo[W - 1] = chunks_hi[W - 1];
+    chunks_hi[W - 1] = fill;
 }
 
 #[cfg(not(feature = "chunks_128"))]
