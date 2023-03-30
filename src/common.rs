@@ -1,5 +1,5 @@
-use crate::{Chunk, ChunkW, IChunk};
-use core::{cmp::Ordering, ops::ControlFlow};
+use crate::{Chunk, Chunk2, ChunkW};
+use core::ops::ControlFlow;
 
 pub fn get<T>(control_flow: ControlFlow<T, T>) -> T {
     match control_flow {
@@ -15,7 +15,7 @@ fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     }
 }
 
-pub fn carrying_add_chunk(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
+pub fn carrying_add_chunks(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
     let (a, b) = lhs.overflowing_add(rhs);
     let (c, d) = a.overflowing_add(carry as Chunk);
     (c, b || d)
@@ -156,7 +156,7 @@ pub fn split_shr_chunks<const W: usize>(
                 (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
                 infill
             });
-        chunks[W - 1 - chunk_offset..].fill(0);
+        chunks[W - chunk_offset..].fill(0);
     }
 }
 
@@ -186,6 +186,41 @@ pub fn split_rotate_right_chunks<const W: usize>(
     chunks[W - 1] |= infill;
 }
 
-pub fn cmp_chunk_as_signed(lhs: Chunk, rhs: Chunk) -> Ordering {
-    (lhs as IChunk).cmp(&(rhs as IChunk))
+pub fn shr_chunks_over<const W: usize>(
+    chunks_lo: &mut [Chunk; W],
+    chunks_hi: &mut [Chunk; W],
+    chunk_offset: usize,
+) {
+    chunks_hi.rotate_left(chunk_offset);
+    chunks_lo.rotate_left(chunk_offset);
+    chunks_hi[W - chunk_offset..].copy_from_slice(&chunks_lo[W - chunk_offset..]);
+    chunks_lo[W - chunk_offset..].fill(0);
+}
+
+#[cfg(not(feature = "chunks_128"))]
+pub fn carrying_mul_chunks(lhs: Chunk, rhs: Chunk, add: Chunk) -> (Chunk, Chunk) {
+    let result = lhs as Chunk2 * rhs as Chunk2 + add as Chunk2;
+    (result as Chunk, (result >> Chunk::BITS) as Chunk)
+}
+
+#[cfg(feature = "chunks_128")]
+pub fn carrying_mul_chunks(lhs: Chunk, rhs: Chunk, add: Chunk) -> (Chunk, Chunk) {
+    let lhs_lo = lhs as Chunk2;
+    let rhs_lo = rhs as Chunk2;
+    let lhs_hi = (lhs >> Chunk2::BITS) as Chunk2;
+    let rhs_hi = (rhs >> Chunk2::BITS) as Chunk2;
+    let lo_by_lo = lhs_lo as Chunk * rhs_lo as Chunk;
+    let lo_by_hi = lhs_lo as Chunk * rhs_hi as Chunk;
+    let hi_by_lo = lhs_hi as Chunk * rhs_lo as Chunk;
+    let hi_by_hi = lhs_hi as Chunk * rhs_hi as Chunk;
+    let (lo, carry_1) = lo_by_lo.overflowing_add(lo_by_hi << Chunk2::BITS);
+    let (lo, carry_2) = lo.overflowing_add(hi_by_lo << Chunk2::BITS);
+    let (lo, carry_3) = lo.overflowing_add(add);
+    let hi = hi_by_hi
+        + (lo_by_hi >> Chunk2::BITS)
+        + (hi_by_lo >> Chunk2::BITS)
+        + carry_1 as Chunk
+        + carry_2 as Chunk
+        + carry_3 as Chunk;
+    (lo, hi)
 }

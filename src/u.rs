@@ -2,9 +2,10 @@ use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
 
 use crate::{
     common::{
-        carrying_add_chunk, count_ones_chunks_u64, count_zeros_chunks_u64, leading_ones_chunks_u64,
-        leading_zeros_chunks_u64, split_rotate_left_chunks, split_rotate_right_chunks,
-        split_shl_chunks, split_shr_chunks, trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
+        carrying_add_chunks, carrying_mul_chunks, count_ones_chunks_u64, count_zeros_chunks_u64,
+        leading_ones_chunks_u64, leading_zeros_chunks_u64, shr_chunks_over,
+        split_rotate_left_chunks, split_rotate_right_chunks, split_shl_chunks, split_shr_chunks,
+        trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
     },
     Chunk, ChunkW, I,
 };
@@ -53,7 +54,7 @@ impl<const W: usize> U<W> {
         let carry = izip!(self.chunks, rhs.chunks, &mut chunks).fold(
             carry,
             |mut carry, (chunk_l, chunk_r, dest)| {
-                (*dest, carry) = carrying_add_chunk(chunk_l, chunk_r, carry);
+                (*dest, carry) = carrying_add_chunks(chunk_l, chunk_r, carry);
                 carry
             },
         );
@@ -122,6 +123,22 @@ impl<const W: usize> U<W> {
     pub fn overflowing_add_signed(self, rhs: I<W>) -> (Self, bool) {
         let (result, overflow) = self.overflowing_add(rhs.reinterpret_unsigned());
         (result, overflow ^ (rhs.lt(I::ZERO)))
+    }
+    pub fn carrying_mul(self, rhs: Self, carry: Self) -> (Self, Self) {
+        let mut hi = [0; W];
+        let mut lo = [0; W];
+        for (chunk_l, chunk_carry) in zip(self.chunks, carry.chunks) {
+            zip(rhs.chunks, &mut hi).fold(
+                (chunk_carry, false),
+                |(chunk_carry, mut carry), (chunk_r, dest)| {
+                    let (result, chunk_carry) = carrying_mul_chunks(chunk_l, chunk_r, chunk_carry);
+                    (*dest, carry) = carrying_add_chunks(result, *dest, carry);
+                    (chunk_carry, carry)
+                },
+            );
+            shr_chunks_over(&mut lo, &mut hi, 1);
+        }
+        (U { chunks: lo }, U { chunks: hi })
     }
     pub fn cmp(self, rhs: Self) -> Ordering {
         match zip(self.chunks, rhs.chunks).try_rfold((), |(), (chunk_l, chunk_r)| {

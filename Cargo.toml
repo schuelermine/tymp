@@ -4,8 +4,10 @@ version = "0.1.2"
 edition = "2021"
 
 [features]
-byte_chunks = []
-wide_chunks = []
+chunks_8 = []
+chunks_64 = []
+chunks_128 = []
+default = ["chunks_64"]
 
 [dependencies]
 cfg-if = "1.0.0"
