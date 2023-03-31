@@ -9,7 +9,6 @@ use crate::{
     },
     Chunk, ChunkW, IChunk, U,
 };
-use itertools::izip;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct I<const W: usize> {
@@ -63,29 +62,29 @@ impl<const W: usize> I<W> {
     pub fn trailing_ones_u64(self) -> u64 {
         trailing_ones_chunks_u64(self.chunks)
     }
-    pub fn carrying_add(self, rhs: Self, mut carry: bool) -> (Self, bool) {
+    pub fn carrying_add_in_place(&mut self, rhs: Self, mut carry: bool) -> bool {
         if W == 0 {
-            return (I { chunks: [0; W] }, carry);
+            return carry;
         }
-        let mut chunks = [0; W];
-        let mut iter = izip!(self.chunks, rhs.chunks, &mut chunks);
-        let (last_chunk_l, last_chunk_r, last_dest) = iter.next_back().unwrap();
-        carry = iter.fold(carry, |mut carry, (chunk_l, chunk_r, dest)| {
-            (*dest, carry) = carrying_add_chunks(chunk_l, chunk_r, carry);
+        let mut iter = zip(&mut self.chunks, rhs.chunks);
+        let (last_chunk_l, last_chunk_r) = iter.next_back().unwrap();
+        carry = iter.fold(carry, |mut carry, (chunk_l, chunk_r)| {
+            (*chunk_l, carry) = carrying_add_chunks(*chunk_l, chunk_r, carry);
             carry
         });
-        (*last_dest, carry) = carrying_add_chunk_as_signed(last_chunk_l, last_chunk_r, carry);
-        (I { chunks }, carry)
+        (*last_chunk_l, carry) = carrying_add_chunk_as_signed(*last_chunk_l, last_chunk_r, carry);
+        carry
+    }
+    pub fn carrying_add(mut self, rhs: Self, carry: bool) -> (Self, bool) {
+        let carry = self.carrying_add_in_place(rhs, carry);
+        (self, carry)
     }
     pub fn overflowing_add(self, rhs: Self) -> (Self, bool) {
         self.carrying_add(rhs, false)
     }
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
-        let result = self.carrying_add(rhs, false);
-        match result.1 {
-            true => None,
-            false => Some(result.0),
-        }
+        let result = self.overflowing_add(rhs);
+        result.1.then_some(result.0)
     }
     pub fn wrapping_add(self, rhs: Self) -> Self {
         self.carrying_add(rhs, false).0

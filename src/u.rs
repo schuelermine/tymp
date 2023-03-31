@@ -9,7 +9,6 @@ use crate::{
     },
     Chunk, ChunkW, I,
 };
-use itertools::izip;
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct U<const W: usize> {
@@ -53,29 +52,28 @@ impl<const W: usize> U<W> {
     pub fn trailing_ones_u64(self) -> u64 {
         trailing_ones_chunks_u64(self.chunks)
     }
-    pub fn carrying_add(self, rhs: Self, carry: bool) -> (Self, bool) {
+    pub fn carrying_add_in_place(&mut self, rhs: Self, carry: bool) -> bool {
         if W == 0 {
-            return (U { chunks: [0; W] }, carry);
+            return carry;
         }
-        let mut chunks = [0; W];
-        let carry = izip!(self.chunks, rhs.chunks, &mut chunks).fold(
-            carry,
-            |mut carry, (chunk_l, chunk_r, dest)| {
-                (*dest, carry) = carrying_add_chunks(chunk_l, chunk_r, carry);
-                carry
-            },
-        );
-        (U { chunks }, carry)
+        zip(&mut self.chunks, rhs.chunks).fold(carry, |mut carry, (chunk_l, chunk_r)| {
+            (*chunk_l, carry) = carrying_add_chunks(*chunk_l, chunk_r, carry);
+            carry
+        })
+    }
+    pub fn overflowing_add_in_place(&mut self, rhs: Self) -> bool {
+        self.carrying_add_in_place(rhs, false)
+    }
+    pub fn carrying_add(mut self, rhs: Self, carry: bool) -> (Self, bool) {
+        let carry = self.carrying_add_in_place(rhs, carry);
+        (self, carry)
     }
     pub fn overflowing_add(self, rhs: Self) -> (Self, bool) {
         self.carrying_add(rhs, false)
     }
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
-        let result = self.carrying_add(rhs, false);
-        match result.1 {
-            true => None,
-            false => Some(result.0),
-        }
+        let result = self.overflowing_add(rhs);
+        (!result.1).then_some(result.0)
     }
     pub fn wrapping_add(self, rhs: Self) -> Self {
         self.carrying_add(rhs, false).0
