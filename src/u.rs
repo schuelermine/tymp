@@ -134,16 +134,16 @@ impl<const W: usize> U<W> {
     pub fn carrying_mul(self, rhs: Self, carry: Self) -> (Self, Self) {
         let mut hi = [0; W];
         let mut lo = [0; W];
-        for (chunk_l, chunk_carry) in zip(self.chunks, carry.chunks) {
-            let (chunk_carry, carry) = zip(rhs.chunks, &mut hi).fold(
-                (chunk_carry, false),
-                |(chunk_carry, mut carry), (chunk_r, dest)| {
-                    let (result, chunk_carry) = carrying_mul_chunks(chunk_l, chunk_r, chunk_carry);
-                    (*dest, carry) = carrying_add_chunks(result, *dest, carry);
-                    (chunk_carry, carry)
+        for (chunk_l, carry) in zip(self.chunks, carry.chunks) {
+            let (carry_1, carry_2) = zip(rhs.chunks, &mut hi).fold(
+                (carry, false),
+                |(carry_1, mut carry_2), (chunk_r, dest)| {
+                    let (result, carry_1) = carrying_mul_chunks(chunk_l, chunk_r, carry_1);
+                    (*dest, carry_2) = carrying_add_chunks(result, *dest, carry_2);
+                    (carry_1, carry_2)
                 },
             );
-            shr_chunks_over(&mut lo, &mut hi, chunk_carry + carry as Chunk);
+            shr_chunks_over(&mut lo, &mut hi, carry_1 + carry_2 as Chunk);
         }
         (U { chunks: lo }, U { chunks: hi })
     }
