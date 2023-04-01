@@ -1,5 +1,3 @@
-use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
-
 use crate::{
     common::{
         carrying_add_chunks, carrying_mul_chunks, count_ones_chunks_u64, count_zeros_chunks_u64,
@@ -9,6 +7,7 @@ use crate::{
     },
     Chunk, ChunkW, I,
 };
+use core::{cmp::Ordering, iter::zip};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct U<const W: usize> {
@@ -127,7 +126,7 @@ impl<const W: usize> U<W> {
     }
     pub fn overflowing_add_signed(self, rhs: I<W>) -> (Self, bool) {
         let (result, overflow) = self.overflowing_add(rhs.reinterpret_unsigned());
-        (result, overflow ^ (rhs.lt(I::ZERO)))
+        (result, overflow ^ (rhs < I::ZERO))
     }
     pub fn carrying_mul(self, rhs: Self, carry: Self) -> (Self, Self) {
         let mut hi = [0; W];
@@ -145,33 +144,16 @@ impl<const W: usize> U<W> {
         }
         (U { chunks: lo }, U { chunks: hi })
     }
-    pub fn cmp(self, rhs: Self) -> Ordering {
-        match zip(self.chunks, rhs.chunks).try_rfold((), |(), (chunk_l, chunk_r)| {
-            match chunk_l.cmp(&chunk_r) {
-                Ordering::Equal => ControlFlow::Continue(()),
-                order => ControlFlow::Break(order),
-            }
-        }) {
-            ControlFlow::Continue(()) => Ordering::Equal,
-            ControlFlow::Break(order) => order,
-        }
+}
+
+impl<const W: usize> PartialOrd for U<W> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
-    pub fn lt(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_lt()
-    }
-    pub fn le(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ne()
-    }
-    pub fn gt(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_gt()
-    }
-    pub fn ge(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ge()
-    }
-    pub fn eq(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_eq()
-    }
-    pub fn ne(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ne()
+}
+
+impl<const W: usize> Ord for U<W> {
+    fn cmp(&self, rhs: &Self) -> Ordering {
+        self.chunks.into_iter().cmp(rhs.chunks)
     }
 }

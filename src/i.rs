@@ -1,5 +1,3 @@
-use core::{cmp::Ordering, iter::zip, ops::ControlFlow};
-
 use crate::{
     common::{
         carrying_add_chunks, count_ones_chunks_u64, count_zeros_chunks_u64,
@@ -9,6 +7,7 @@ use crate::{
     },
     Chunk, ChunkW, IChunk, U,
 };
+use core::{cmp::Ordering, iter::zip};
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 pub struct I<const W: usize> {
@@ -139,40 +138,7 @@ impl<const W: usize> I<W> {
     pub fn overflowing_add_unsigned(self, rhs: U<W>) -> (Self, bool) {
         let rhs = rhs.reinterpret_signed();
         let (result, overflow) = self.overflowing_add(rhs);
-        (result, overflow ^ rhs.lt(Self::ZERO))
-    }
-    pub fn cmp(self, rhs: Self) -> Ordering {
-        let mut iter = zip(self.chunks, rhs.chunks);
-        let (chunk_l, chunk_r) = iter.next_back().unwrap();
-        match cmp_chunk_as_signed(chunk_l, chunk_r) {
-            Ordering::Equal => (),
-            order => return order,
-        }
-        match iter.try_rfold((), |(), (chunk_l, chunk_r)| match chunk_l.cmp(&chunk_r) {
-            Ordering::Equal => ControlFlow::Continue(()),
-            order => ControlFlow::Break(order),
-        }) {
-            ControlFlow::Continue(()) => Ordering::Equal,
-            ControlFlow::Break(order) => order,
-        }
-    }
-    pub fn lt(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_lt()
-    }
-    pub fn le(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ne()
-    }
-    pub fn gt(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_gt()
-    }
-    pub fn ge(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ge()
-    }
-    pub fn eq(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_eq()
-    }
-    pub fn ne(self, rhs: Self) -> bool {
-        self.cmp(rhs).is_ne()
+        (result, overflow ^ (rhs < Self::ZERO))
     }
 }
 
@@ -184,4 +150,24 @@ fn carrying_add_chunk_as_signed(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, 
 
 fn cmp_chunk_as_signed(lhs: Chunk, rhs: Chunk) -> Ordering {
     (lhs as IChunk).cmp(&(rhs as IChunk))
+}
+
+impl<const W: usize> PartialOrd for I<W> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<const W: usize> Ord for I<W> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let mut iter_l = self.chunks.into_iter();
+        let mut iter_r = other.chunks.into_iter();
+        let first_chunk_l = iter_l.next().unwrap();
+        let first_chunk_r = iter_r.next().unwrap();
+        match cmp_chunk_as_signed(first_chunk_l, first_chunk_r) {
+            Ordering::Equal => (),
+            order => return order,
+        }
+        iter_l.cmp(iter_r)
+    }
 }
