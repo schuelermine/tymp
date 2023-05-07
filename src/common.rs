@@ -1,126 +1,126 @@
-use crate::{Chunk, Chunk2, ChunkW};
-use core::ops::ControlFlow;
+use core::{
+    cmp::Ordering,
+    ops::{BitOrAssign, ControlFlow},
+};
 
-pub fn get<T>(control_flow: ControlFlow<T, T>) -> T {
-    match control_flow {
+use discard_while::discard_while;
+
+pub trait ChunkType: Sized + Copy + BitOrAssign + Eq + Ord {
+    const BITS: Self::BitCounter;
+    const MAX: Self;
+    const ONE: Self;
+    const ZERO: Self;
+    const LEADING_ONE: Self;
+    const LEADING_ZERO: Self;
+    type BitCounter: ChunkBitCounter<Self>;
+    fn count_ones(self) -> Self::BitCounter;
+    fn count_zeros(self) -> Self::BitCounter;
+    fn leading_ones(self) -> Self::BitCounter;
+    fn leading_zeros(self) -> Self::BitCounter;
+    fn trailing_ones(self) -> Self::BitCounter;
+    fn trailing_zeros(self) -> Self::BitCounter;
+    fn carrying_add(self, rhs: Self, carry: bool) -> (Self, bool);
+    fn carrying_add_as_signed(self, rhs: Self, carry: bool) -> (Self, bool);
+    fn shl_chunk_full(self, shamt: Self::BitCounter, infill: Self) -> (Self, Self);
+    fn shr_chunk_full(self, shamt: Self::BitCounter, infill: Self) -> (Self, Self);
+    fn cmp_as_signed(self, other: Self) -> Ordering;
+    fn reverse_bits(self) -> Self;
+}
+
+pub trait ChunkBitCounter<Chunk: ChunkType>: Copy + PartialEq {
+    const ZERO: Self;
+    fn is_valid(self) -> bool;
+}
+
+pub trait TotalBitCounter<Chunk: ChunkType>: Sized {
+    const ZERO: Self;
+    fn from_chunk_count(count: usize) -> Option<Self>;
+    fn checked_add(self, rhs: Chunk::BitCounter) -> Option<Self>;
+    fn split(self) -> (usize, Chunk::BitCounter);
+}
+
+pub fn get<T>(cf: ControlFlow<T, T>) -> T {
+    match cf {
         ControlFlow::Continue(x) => x,
         ControlFlow::Break(x) => x,
     }
 }
 
-fn continue_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
+pub fn break_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
     match cond {
-        true => ControlFlow::Continue(value),
-        false => ControlFlow::Break(value),
+        true => ControlFlow::Break(value),
+        false => ControlFlow::Continue(value),
     }
 }
 
-pub fn carrying_add_chunks(lhs: Chunk, rhs: Chunk, carry: bool) -> (Chunk, bool) {
-    let (a, b) = lhs.overflowing_add(rhs);
-    let (c, d) = a.overflowing_add(carry as Chunk);
-    (c, b || d)
-}
-
-pub fn shl_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
-    match shamt == 0 {
-        true => (value | infill, 0),
-        false => (
-            value << shamt | infill,
-            (Chunk::MAX << shamt & value) >> (Chunk::BITS as ChunkW - shamt),
-        ),
-    }
-}
-
-pub fn shr_chunk_full(value: Chunk, shamt: ChunkW, infill: Chunk) -> (Chunk, Chunk) {
-    match shamt == 0 {
-        true => (value | infill, 0),
-        false => (
-            value >> shamt | infill,
-            (Chunk::MAX >> shamt & value) << (Chunk::BITS as ChunkW - shamt),
-        ),
-    }
-}
-
-pub fn count_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    chunks.into_iter().fold(0, |count, chunk| {
-        count
-            .checked_add(chunk.count_ones() as u64)
-            .expect("positive overflow")
+pub fn count_zeros_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    chunks.into_iter().try_fold(Total::ZERO, |count, chunk| {
+        count.checked_add(chunk.count_zeros())
     })
 }
 
-pub fn count_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    chunks.into_iter().fold(0, |count, chunk| {
-        count
-            .checked_add(chunk.count_zeros() as u64)
-            .expect("positive overflow")
+pub fn count_ones_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    chunks.into_iter().try_fold(Total::ZERO, |count, chunk| {
+        count.checked_add(chunk.count_ones())
     })
 }
 
-pub fn leading_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    get(chunks.into_iter().try_rfold(0, |count: u64, chunk| {
-        let all_zeros = chunk == 0;
-        let chunk_leading_zeros = match all_zeros {
-            true => Chunk::BITS,
-            false => chunk.leading_zeros(),
-        } as u64;
-        let count = count
-            .checked_add(chunk_leading_zeros)
-            .expect("positive overflow");
-        continue_if(all_zeros, count)
-    }))
+pub fn leading_zeros_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    let (chunk, count) = discard_while(chunks.into_iter().rev(), |&chunk| chunk == Chunk::ZERO);
+    Total::from_chunk_count(count)?.checked_add(if let Some(chunk) = chunk {
+        chunk.leading_zeros()
+    } else {
+        Chunk::BitCounter::ZERO
+    })
 }
 
-pub fn leading_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    get(chunks.into_iter().try_rfold(0, |count: u64, chunk| {
-        let all_ones = chunk == Chunk::MAX;
-        let chunk_leading_zeros = match all_ones {
-            true => Chunk::BITS,
-            false => chunk.leading_ones(),
-        } as u64;
-        let count = count
-            .checked_add(chunk_leading_zeros)
-            .expect("positive overflow");
-        continue_if(all_ones, count)
-    }))
+pub fn leading_ones_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    let (chunk, count) = discard_while(chunks.into_iter().rev(), |&chunk| chunk == Chunk::MAX);
+    Total::from_chunk_count(count)?.checked_add(if let Some(chunk) = chunk {
+        chunk.leading_ones()
+    } else {
+        Chunk::BitCounter::ZERO
+    })
 }
 
-pub fn trailing_zeros_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    get(chunks.into_iter().try_fold(0, |count: u64, chunk| {
-        let all_zeros = chunk == 0;
-        let chunk_leading_zeros = match all_zeros {
-            true => Chunk::BITS,
-            false => chunk.trailing_zeros(),
-        } as u64;
-        let count = count
-            .checked_add(chunk_leading_zeros)
-            .expect("positive overflow");
-        continue_if(all_zeros, count)
-    }))
+pub fn trailing_zeros_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    let (chunk, count) = discard_while(chunks, |&chunk| chunk == Chunk::ZERO);
+    Total::from_chunk_count(count)?.checked_add(if let Some(chunk) = chunk {
+        chunk.trailing_zeros()
+    } else {
+        Chunk::BitCounter::ZERO
+    })
 }
 
-pub fn trailing_ones_chunks_u64<const W: usize>(chunks: [Chunk; W]) -> u64 {
-    get(chunks.into_iter().try_fold(0, |count: u64, chunk| {
-        let all_ones = chunk == Chunk::MAX;
-        let chunk_leading_zeros = match all_ones {
-            true => Chunk::BITS,
-            false => chunk.trailing_ones(),
-        } as u64;
-        let count = count
-            .checked_add(chunk_leading_zeros)
-            .expect("positive overflow");
-        continue_if(all_ones, count)
-    }))
+pub fn trailing_ones_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
+    chunks: [Chunk; W],
+) -> Option<Total> {
+    let (chunk, count) = discard_while(chunks, |&chunk| chunk == Chunk::MAX);
+    Total::from_chunk_count(count)?.checked_add(if let Some(chunk) = chunk {
+        chunk.trailing_ones()
+    } else {
+        Chunk::BitCounter::ZERO
+    })
 }
 
-pub fn split_shl_chunks<const W: usize>(
+pub fn split_shl_chunks<const W: usize, Chunk: ChunkType>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
-    bit_offset: ChunkW,
+    bit_offset: Chunk::BitCounter,
 ) {
     if chunk_offset == 0 {
-        chunks.iter_mut().fold(0, |mut infill, chunk| {
-            (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
+        chunks.iter_mut().fold(Chunk::ZERO, |mut infill, chunk| {
+            (*chunk, infill) = chunk.shl_chunk_full(bit_offset, infill);
             infill
         });
     } else {
@@ -128,22 +128,22 @@ pub fn split_shl_chunks<const W: usize>(
         chunks
             .iter_mut()
             .skip(chunk_offset)
-            .fold(0, |mut infill, chunk| {
-                (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
+            .fold(Chunk::ZERO, |mut infill, chunk| {
+                (*chunk, infill) = chunk.shl_chunk_full(bit_offset, infill);
                 infill
             });
-        chunks[..chunk_offset].fill(0);
+        chunks[..chunk_offset].fill(Chunk::ZERO);
     }
 }
 
-pub fn split_shr_chunks<const W: usize>(
+pub fn split_shr_chunks<const W: usize, Chunk: ChunkType>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
-    bit_offset: ChunkW,
+    bit_offset: Chunk::BitCounter,
 ) {
     if chunk_offset == 0 {
-        chunks.iter_mut().rfold(0, |mut infill, chunk| {
-            (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+        chunks.iter_mut().rfold(Chunk::ZERO, |mut infill, chunk| {
+            (*chunk, infill) = (*chunk).shr_chunk_full(bit_offset, infill);
             infill
         });
     } else {
@@ -152,75 +152,36 @@ pub fn split_shr_chunks<const W: usize>(
             .iter_mut()
             .rev()
             .skip(chunk_offset)
-            .fold(0, |mut infill, chunk| {
-                (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+            .fold(Chunk::ZERO, |mut infill, chunk| {
+                (*chunk, infill) = chunk.shr_chunk_full(bit_offset, infill);
                 infill
             });
-        chunks[W - chunk_offset..].fill(0);
+        chunks[W - chunk_offset..].fill(Chunk::ZERO);
     }
 }
 
-pub fn split_rotate_left_chunks<const W: usize>(
+pub fn split_rotate_left_chunks<const W: usize, Chunk: ChunkType>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
-    bit_offset: ChunkW,
+    bit_offset: Chunk::BitCounter,
 ) {
     chunks.rotate_right(chunk_offset);
-    let infill = chunks.iter_mut().fold(0, |mut infill, chunk| {
-        (*chunk, infill) = shl_chunk_full(*chunk, bit_offset, infill);
+    let infill = chunks.iter_mut().fold(Chunk::ZERO, |mut infill, chunk| {
+        (*chunk, infill) = chunk.shl_chunk_full(bit_offset, infill);
         infill
     });
     chunks[0] |= infill;
 }
 
-pub fn split_rotate_right_chunks<const W: usize>(
+pub fn split_rotate_right_chunks<const W: usize, Chunk: ChunkType>(
     chunks: &mut [Chunk; W],
     chunk_offset: usize,
-    bit_offset: ChunkW,
+    bit_offset: Chunk::BitCounter,
 ) {
     chunks.rotate_left(chunk_offset);
-    let infill = chunks.iter_mut().rfold(0, |mut infill, chunk| {
-        (*chunk, infill) = shr_chunk_full(*chunk, bit_offset, infill);
+    let infill = chunks.iter_mut().rfold(Chunk::ZERO, |mut infill, chunk| {
+        (*chunk, infill) = chunk.shr_chunk_full(bit_offset, infill);
         infill
     });
     chunks[W - 1] |= infill;
-}
-
-pub fn shr_chunks_over<const W: usize>(
-    chunks_lo: &mut [Chunk; W],
-    chunks_hi: &mut [Chunk; W],
-    fill: Chunk,
-) {
-    chunks_lo.rotate_left(1);
-    chunks_hi.rotate_left(1);
-    chunks_lo[W - 1] = chunks_hi[W - 1];
-    chunks_hi[W - 1] = fill;
-}
-
-#[cfg(not(feature = "chunks_128"))]
-pub fn carrying_mul_chunks(lhs: Chunk, rhs: Chunk, add: Chunk) -> (Chunk, Chunk) {
-    let result = lhs as Chunk2 * rhs as Chunk2 + add as Chunk2;
-    (result as Chunk, (result >> Chunk::BITS) as Chunk)
-}
-
-#[cfg(feature = "chunks_128")]
-pub fn carrying_mul_chunks(lhs: Chunk, rhs: Chunk, add: Chunk) -> (Chunk, Chunk) {
-    let lhs_lo = lhs as Chunk2;
-    let rhs_lo = rhs as Chunk2;
-    let lhs_hi = (lhs >> Chunk2::BITS) as Chunk2;
-    let rhs_hi = (rhs >> Chunk2::BITS) as Chunk2;
-    let lo_by_lo = lhs_lo as Chunk * rhs_lo as Chunk;
-    let lo_by_hi = lhs_lo as Chunk * rhs_hi as Chunk;
-    let hi_by_lo = lhs_hi as Chunk * rhs_lo as Chunk;
-    let hi_by_hi = lhs_hi as Chunk * rhs_hi as Chunk;
-    let (lo, carry_1) = lo_by_lo.overflowing_add(lo_by_hi << Chunk2::BITS);
-    let (lo, carry_2) = lo.overflowing_add(hi_by_lo << Chunk2::BITS);
-    let (lo, carry_3) = lo.overflowing_add(add);
-    let hi = hi_by_hi
-        + (lo_by_hi >> Chunk2::BITS)
-        + (hi_by_lo >> Chunk2::BITS)
-        + carry_1 as Chunk
-        + carry_2 as Chunk
-        + carry_3 as Chunk;
-    (lo, hi)
 }

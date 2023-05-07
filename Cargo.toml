@@ -12,3 +12,4 @@ default = ["chunks_64", "copy"]
 
 [dependencies]
 cfg-if = "1.0.0"
+discard-while = "0.1.0"

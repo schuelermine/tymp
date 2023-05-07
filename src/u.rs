@@ -1,11 +1,10 @@
 use crate::{
     common::{
-        carrying_add_chunks, carrying_mul_chunks, count_ones_chunks_u64, count_zeros_chunks_u64,
-        leading_ones_chunks_u64, leading_zeros_chunks_u64, shr_chunks_over,
+        count_ones_chunks, count_zeros_chunks, leading_ones_chunks, leading_zeros_chunks,
         split_rotate_left_chunks, split_rotate_right_chunks, split_shl_chunks, split_shr_chunks,
-        trailing_ones_chunks_u64, trailing_zeros_chunks_u64,
+        trailing_ones_chunks, trailing_zeros_chunks, ChunkType,
     },
-    Chunk, ChunkW, I,
+    i::I,
 };
 use core::{
     cmp::Ordering,
@@ -15,11 +14,11 @@ use core::{
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "clone", derive(Clone))]
-pub struct U<const W: usize> {
+pub struct U<const W: usize, Chunk: ChunkType> {
     pub(crate) chunks: [Chunk; W],
 }
 
-impl<const W: usize> U<W> {
+impl<const W: usize, Chunk: ChunkType> U<W, Chunk> {
     pub const BITS: Option<usize> = W.checked_mul(Chunk::BITS as usize);
     pub const MIN: Self = U { chunks: [0; W] };
     pub const ZERO: Self = Self::MIN;
@@ -33,35 +32,35 @@ impl<const W: usize> U<W> {
     pub const MAX: Self = U {
         chunks: [Chunk::MAX; W],
     };
-    pub fn reinterpret_signed(self) -> I<W> {
+    pub fn reinterpret_signed(self) -> I<W, Chunk> {
         I {
             chunks: self.chunks,
         }
     }
-    pub fn count_ones_u64(self) -> u64 {
-        count_zeros_chunks_u64(self.chunks)
+    pub fn count_ones(self) -> u64 {
+        count_zeros_chunks(self.chunks)
     }
-    pub fn count_zeros_u64(self) -> u64 {
-        count_ones_chunks_u64(self.chunks)
+    pub fn count_zeros(self) -> u64 {
+        count_ones_chunks(self.chunks)
     }
-    pub fn leading_zeros_u64(self) -> u64 {
-        leading_zeros_chunks_u64(self.chunks)
+    pub fn leading_zeros(self) -> u64 {
+        leading_zeros_chunks(self.chunks)
     }
-    pub fn leading_ones_u64(self) -> u64 {
-        leading_ones_chunks_u64(self.chunks)
+    pub fn leading_ones(self) -> u64 {
+        leading_ones_chunks(self.chunks)
     }
-    pub fn trailing_zeros_u64(self) -> u64 {
-        trailing_zeros_chunks_u64(self.chunks)
+    pub fn trailing_zeros(self) -> u64 {
+        trailing_zeros_chunks(self.chunks)
     }
-    pub fn trailing_ones_u64(self) -> u64 {
-        trailing_ones_chunks_u64(self.chunks)
+    pub fn trailing_ones(self) -> u64 {
+        trailing_ones_chunks(self.chunks)
     }
     pub fn carrying_add_in_place(&mut self, rhs: Self, carry: bool) -> bool {
         if W == 0 {
             return carry;
         }
         zip(&mut self.chunks, rhs.chunks).fold(carry, |mut carry, (chunk_l, chunk_r)| {
-            (*chunk_l, carry) = carrying_add_chunks(*chunk_l, chunk_r, carry);
+            (*chunk_l, carry) = chunk_l.carrying_add(chunk_r, carry);
             carry
         })
     }
@@ -85,142 +84,170 @@ impl<const W: usize> U<W> {
     pub fn split_overflowing_shl_in_place(
         &mut self,
         chunk_offset: usize,
-        bit_offset: ChunkW,
+        bit_offset: Chunk::BitCounter,
     ) -> bool {
         let overflow = chunk_offset >= W;
         let chunk_offset = chunk_offset % W;
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_shl_chunks(&mut self.chunks, chunk_offset, bit_offset);
         overflow
     }
     pub fn split_overflowing_shr_in_place(
         &mut self,
         chunk_offset: usize,
-        bit_offset: ChunkW,
+        bit_offset: Chunk::BitCounter,
     ) -> bool {
         let overflow = chunk_offset >= W;
         let chunk_offset = chunk_offset % W;
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_shr_chunks(&mut self.chunks, chunk_offset, bit_offset);
         overflow
     }
-    pub fn overflowing_shl_u64_in_place(&mut self, rhs: u64) -> bool {
+    pub fn overflowing_shl_in_place(&mut self, rhs: u64) -> bool {
         let chunk_offset = rhs / Chunk::BITS as u64;
         let bit_offset = rhs % Chunk::BITS as u64;
-        self.split_overflowing_shl_in_place(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_overflowing_shl_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
-    pub fn overflowing_shr_u64_in_place(&mut self, rhs: u64) -> bool {
+    pub fn overflowing_shr_in_place(&mut self, rhs: u64) -> bool {
         let chunk_offset = rhs / Chunk::BITS as u64;
         let bit_offset = rhs % Chunk::BITS as u64;
-        self.split_overflowing_shr_in_place(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_overflowing_shr_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
-    pub fn split_wrapping_shl_in_place(&mut self, chunk_offset: usize, bit_offset: ChunkW) {
+    pub fn split_wrapping_shl_in_place(
+        &mut self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) {
         self.split_overflowing_shl_in_place(chunk_offset, bit_offset);
     }
-    pub fn split_wrapping_shr_in_place(&mut self, chunk_offset: usize, bit_offset: ChunkW) {
+    pub fn split_wrapping_shr_in_place(
+        &mut self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) {
         self.split_overflowing_shr_in_place(chunk_offset, bit_offset);
     }
-    pub fn wrapping_shl_u64_in_place(&mut self, rhs: u64) {
-        self.overflowing_shr_u64_in_place(rhs);
+    pub fn wrapping_shl_in_place(&mut self, rhs: u64) {
+        self.overflowing_shr_in_place(rhs);
     }
-    pub fn wrapping_shr_u64_in_place(&mut self, rhs: u64) {
-        self.overflowing_shr_u64_in_place(rhs);
+    pub fn wrapping_shr_in_place(&mut self, rhs: u64) {
+        self.overflowing_shr_in_place(rhs);
     }
     pub fn split_overflowing_shl(
         mut self,
         chunk_offset: usize,
-        bit_offset: ChunkW,
+        bit_offset: Chunk::BitCounter,
     ) -> (Self, bool) {
         let overflow = chunk_offset >= W;
         let chunk_offset = chunk_offset % W;
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_shl_chunks(&mut self.chunks, chunk_offset, bit_offset);
         (self, overflow)
     }
     pub fn split_overflowing_shr(
         mut self,
         chunk_offset: usize,
-        bit_offset: ChunkW,
+        bit_offset: Chunk::BitCounter,
     ) -> (Self, bool) {
         let overflow = chunk_offset >= W;
         let chunk_offset = chunk_offset % W;
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_shr_chunks(&mut self.chunks, chunk_offset, bit_offset);
         (self, overflow)
     }
-    pub fn overflowing_shl_u64(self, rhs: u64) -> (Self, bool) {
+    pub fn overflowing_shl(self, rhs: u64) -> (Self, bool) {
         let chunk_offset = rhs / Chunk::BITS as u64;
         let bit_offset = rhs % Chunk::BITS as u64;
-        self.split_overflowing_shl(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_overflowing_shl(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
-    pub fn overflowing_shr_u64(self, rhs: u64) -> (Self, bool) {
+    pub fn overflowing_shr(self, rhs: u64) -> (Self, bool) {
         let chunk_offset = rhs / Chunk::BITS as u64;
         let bit_offset = rhs % Chunk::BITS as u64;
-        self.split_overflowing_shr(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_overflowing_shr(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
-    pub fn split_wrapping_shl(self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+    pub fn split_wrapping_shl(self, chunk_offset: usize, bit_offset: Chunk::BitCounter) -> Self {
         self.split_overflowing_shl(chunk_offset, bit_offset).0
     }
-    pub fn split_wrapping_shr(self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+    pub fn split_wrapping_shr(self, chunk_offset: usize, bit_offset: Chunk::BitCounter) -> Self {
         self.split_overflowing_shr(chunk_offset, bit_offset).0
     }
-    pub fn wrapping_shl_u64(self, rhs: u64) -> Self {
-        self.overflowing_shl_u64(rhs).0
+    pub fn wrapping_shl(self, rhs: u64) -> Self {
+        self.overflowing_shl(rhs).0
     }
-    pub fn wrapping_shr_u64(self, rhs: u64) -> Self {
-        self.overflowing_shr_u64(rhs).0
+    pub fn wrapping_shr(self, rhs: u64) -> Self {
+        self.overflowing_shr(rhs).0
     }
-    pub fn split_checked_shl(self, chunk_offset: usize, bit_offset: ChunkW) -> Option<Self> {
+    pub fn split_checked_shl(
+        self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) -> Option<Self> {
         let result = self.split_overflowing_shl(chunk_offset, bit_offset);
         result.1.then_some(result.0)
     }
-    pub fn split_checked_shr(self, chunk_offset: usize, bit_offset: ChunkW) -> Option<Self> {
+    pub fn split_checked_shr(
+        self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) -> Option<Self> {
         let result = self.split_overflowing_shr(chunk_offset, bit_offset);
         result.1.then_some(result.0)
     }
-    pub fn checked_shl_u64(self, rhs: u64) -> Option<Self> {
-        let result = self.overflowing_shl_u64(rhs);
+    pub fn checked_shl(self, rhs: u64) -> Option<Self> {
+        let result = self.overflowing_shl(rhs);
         result.1.then_some(result.0)
     }
-    pub fn checked_shr_u64(self, rhs: u64) -> Option<Self> {
-        let result = self.overflowing_shr_u64(rhs);
+    pub fn checked_shr(self, rhs: u64) -> Option<Self> {
+        let result = self.overflowing_shr(rhs);
         result.1.then_some(result.0)
     }
-    pub fn split_rotate_left_in_place(&mut self, chunk_offset: usize, bit_offset: ChunkW) {
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+    pub fn split_rotate_left_in_place(
+        &mut self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) {
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_rotate_left_chunks(&mut self.chunks, chunk_offset, bit_offset);
     }
-    pub fn split_rotate_right_in_place(&mut self, chunk_offset: usize, bit_offset: ChunkW) {
-        assert!(bit_offset < Chunk::BITS as ChunkW);
+    pub fn split_rotate_right_in_place(
+        &mut self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) {
+        assert!(bit_offset < Chunk::BITS as Chunk::BitCounter);
         split_rotate_right_chunks(&mut self.chunks, chunk_offset, bit_offset);
     }
-    pub fn rotate_left_u64_in_place(&mut self, n: u64) {
+    pub fn rotate_left_in_place(&mut self, n: u64) {
         let chunk_offset = n / Chunk::BITS as u64;
         let bit_offset = n % Chunk::BITS as u64;
-        self.split_rotate_left_in_place(chunk_offset as usize, bit_offset as ChunkW);
+        self.split_rotate_left_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter);
     }
-    pub fn rotate_right_u64_in_place(&mut self, n: u64) {
+    pub fn rotate_right_in_place(&mut self, n: u64) {
         let chunk_offset = n / Chunk::BITS as u64;
         let bit_offset = n % Chunk::BITS as u64;
-        self.split_rotate_right_in_place(chunk_offset as usize, bit_offset as ChunkW);
+        self.split_rotate_right_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter);
     }
-    pub fn split_rotate_left(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+    pub fn split_rotate_left(mut self, chunk_offset: usize, bit_offset: Chunk::BitCounter) -> Self {
         self.split_rotate_left_in_place(chunk_offset, bit_offset);
         self
     }
-    pub fn split_rotate_right(mut self, chunk_offset: usize, bit_offset: ChunkW) -> Self {
+    pub fn split_rotate_right(
+        mut self,
+        chunk_offset: usize,
+        bit_offset: Chunk::BitCounter,
+    ) -> Self {
         self.split_rotate_right_in_place(chunk_offset, bit_offset);
         self
     }
-    pub fn rotate_left_u64(self, n: u64) -> Self {
+    pub fn rotate_left(self, n: u64) -> Self {
         let chunk_offset = n / Chunk::BITS as u64;
         let bit_offset = n % Chunk::BITS as u64;
-        self.split_rotate_left(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_rotate_left(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
-    pub fn rotate_right_u64(self, n: u64) -> Self {
+    pub fn rotate_right(self, n: u64) -> Self {
         let chunk_offset = n / Chunk::BITS as u64;
         let bit_offset = n % Chunk::BITS as u64;
-        self.split_rotate_right(chunk_offset as usize, bit_offset as ChunkW)
+        self.split_rotate_right(chunk_offset as usize, bit_offset as Chunk::BitCounter)
     }
     pub fn swap_bytes(mut self) -> Self {
         self.chunks.reverse();
@@ -292,12 +319,12 @@ impl<const W: usize> Shl<u64> for U<W> {
     type Output = Self;
     #[cfg(debug_assertions)]
     fn shl(self, rhs: u64) -> Self {
-        self.checked_shl_u64(rhs)
+        self.checked_shl(rhs)
             .expect("attempt to shift left with overflow")
     }
     #[cfg(not(debug_assertions))]
     fn shl(self, rhs: u64) -> Self {
-        self.wrapping_shl_u64(rhs)
+        self.wrapping_shl(rhs)
     }
 }
 
@@ -305,11 +332,11 @@ impl<const W: usize> Shr<u64> for U<W> {
     type Output = Self;
     #[cfg(debug_assertions)]
     fn shr(self, rhs: u64) -> Self {
-        self.checked_shr_u64(rhs)
+        self.checked_shr(rhs)
             .expect("attempt to shift right with overflow")
     }
     #[cfg(not(debug_assertions))]
     fn shr(self, rhs: u64) -> Self {
-        self.wrapping_shr_u64(rhs)
+        self.wrapping_shr(rhs)
     }
 }
