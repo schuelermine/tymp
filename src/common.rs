@@ -1,7 +1,4 @@
-use core::{
-    cmp::Ordering,
-    ops::{BitOrAssign, ControlFlow},
-};
+use core::{cmp::Ordering, ops::BitOrAssign};
 
 use discard_while::discard_while;
 
@@ -21,10 +18,12 @@ pub trait ChunkType: Sized + Copy + BitOrAssign + Eq + Ord {
     fn trailing_zeros(self) -> Self::BitCounter;
     fn carrying_add(self, rhs: Self, carry: bool) -> (Self, bool);
     fn carrying_add_as_signed(self, rhs: Self, carry: bool) -> (Self, bool);
+    fn add_carry(self, carry: bool) -> Option<Self>;
     fn shl_chunk_full(self, shamt: Self::BitCounter, infill: Self) -> (Self, Self);
     fn shr_chunk_full(self, shamt: Self::BitCounter, infill: Self) -> (Self, Self);
     fn cmp_as_signed(self, other: Self) -> Ordering;
     fn reverse_bits(self) -> Self;
+    fn carrying_mul(self, rhs: Self, add: Self) -> (Self, Self);
 }
 
 pub trait ChunkBitCounter<Chunk: ChunkType>: Copy + PartialEq {
@@ -37,20 +36,6 @@ pub trait TotalBitCounter<Chunk: ChunkType>: Sized {
     fn from_chunk_count(count: usize) -> Option<Self>;
     fn checked_add(self, rhs: Chunk::BitCounter) -> Option<Self>;
     fn split(self) -> (usize, Chunk::BitCounter);
-}
-
-pub fn get<T>(cf: ControlFlow<T, T>) -> T {
-    match cf {
-        ControlFlow::Continue(x) => x,
-        ControlFlow::Break(x) => x,
-    }
-}
-
-pub fn break_if<T>(cond: bool, value: T) -> ControlFlow<T, T> {
-    match cond {
-        true => ControlFlow::Break(value),
-        false => ControlFlow::Continue(value),
-    }
 }
 
 pub fn count_zeros_chunks<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>>(
@@ -184,4 +169,15 @@ pub fn split_rotate_right_chunks<const W: usize, Chunk: ChunkType>(
         infill
     });
     chunks[W - 1] |= infill;
+}
+
+pub fn shr_chunks_over<const W: usize, Chunk: ChunkType>(
+    chunks_lo: &mut [Chunk; W],
+    chunks_hi: &mut [Chunk; W],
+    fill: Chunk,
+) {
+    chunks_lo.rotate_left(1);
+    chunks_hi.rotate_left(1);
+    chunks_lo[W - 1] = chunks_hi[W - 1];
+    chunks_hi[W - 1] = fill;
 }
