@@ -1,4 +1,4 @@
-use core::{cmp::Ordering, ops::BitOrAssign};
+use core::{cmp::Ordering, mem::replace, ops::BitOrAssign};
 
 use discard_while::discard_while;
 
@@ -171,13 +171,13 @@ pub fn split_rotate_right_chunks<const W: usize, Chunk: ChunkType>(
     chunks[W - 1] |= infill;
 }
 
-pub fn shr_chunks_over<const W: usize, Chunk: ChunkType>(
+pub fn shr_chunks_one_over<const W: usize, Chunk: ChunkType>(
     chunks_lo: &mut [Chunk; W],
     chunks_hi: &mut [Chunk; W],
     fill: Chunk,
-) {
+) -> Chunk {
     chunks_lo.rotate_left(1);
     chunks_hi.rotate_left(1);
     chunks_lo[W - 1] = chunks_hi[W - 1];
-    chunks_hi[W - 1] = fill;
+    replace(&mut chunks_hi[W - 1], fill)
 }

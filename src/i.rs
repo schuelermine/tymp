@@ -126,11 +126,11 @@ impl<const W: usize, Chunk: ChunkType> I<W, Chunk> {
     }
     pub fn overflowing_shl_in_place<Total: TotalBitCounter<Chunk>>(&mut self, rhs: Total) -> bool {
         let (chunk_offset, bit_offset) = rhs.split();
-        self.split_overflowing_shl_in_place(chunk_offset as usize, bit_offset)
+        self.split_overflowing_shl_in_place(chunk_offset, bit_offset)
     }
     pub fn overflowing_shr_in_place<Total: TotalBitCounter<Chunk>>(&mut self, rhs: Total) -> bool {
         let (chunk_offset, bit_offset) = rhs.split();
-        self.split_overflowing_shr_in_place(chunk_offset as usize, bit_offset)
+        self.split_overflowing_shr_in_place(chunk_offset, bit_offset)
     }
     pub fn split_wrapping_shl_in_place(
         &mut self,
@@ -230,11 +230,11 @@ impl<const W: usize, Chunk: ChunkType> I<W, Chunk> {
     }
     pub fn rotate_left_in_place<Total: TotalBitCounter<Chunk>>(&mut self, n: Total) {
         let (chunk_offset, bit_offset) = n.split();
-        self.split_rotate_left_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter);
+        self.split_rotate_left_in_place(chunk_offset, bit_offset);
     }
     pub fn rotate_right_in_place<Total: TotalBitCounter<Chunk>>(&mut self, n: Total) {
         let (chunk_offset, bit_offset) = n.split();
-        self.split_rotate_right_in_place(chunk_offset as usize, bit_offset as Chunk::BitCounter);
+        self.split_rotate_right_in_place(chunk_offset, bit_offset);
     }
     pub fn split_rotate_left(mut self, chunk_offset: usize, bit_offset: Chunk::BitCounter) -> Self {
         self.split_rotate_left_in_place(chunk_offset, bit_offset);
@@ -303,25 +303,25 @@ impl<const W: usize, Chunk: ChunkType> Ord for I<W, Chunk> {
 
 impl<const W: usize, Chunk: ChunkType> Add for I<W, Chunk> {
     type Output = Self;
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn add(self, rhs: Self) -> Self {
         self.checked_add(rhs).expect("attempt to add with overflow")
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn add(self, rhs: Self) -> Self {
         self.overflowing_add(rhs).0
     }
 }
 
 impl<const W: usize, Chunk: ChunkType> AddAssign for I<W, Chunk> {
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn add_assign(&mut self, rhs: Self) {
         assert!(
             self.overflowing_add_in_place(rhs),
             "attempt to add with overflow"
         );
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn add_assign(&mut self, rhs: Self) {
         self.wrapping_add_in_place(rhs);
     }
@@ -329,12 +329,12 @@ impl<const W: usize, Chunk: ChunkType> AddAssign for I<W, Chunk> {
 
 impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> Shl<Total> for I<W, Chunk> {
     type Output = Self;
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn shl(self, rhs: Total) -> Self {
         self.checked_shl(rhs)
             .expect("attempt to shift left with overflow")
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn shl(self, rhs: Total) -> Self {
         self.wrapping_shl(rhs)
     }
@@ -342,12 +342,12 @@ impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> Shl<Total>
 
 impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> Shr<Total> for I<W, Chunk> {
     type Output = Self;
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn shr(self, rhs: Total) -> Self {
         self.checked_shr(rhs)
             .expect("attempt to shift right with overflow")
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn shr(self, rhs: Total) -> Self {
         self.wrapping_shr(rhs)
     }
@@ -356,14 +356,14 @@ impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> Shr<Total>
 impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> ShlAssign<Total>
     for I<W, Chunk>
 {
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn shl_assign(&mut self, rhs: Total) {
         assert!(
             self.overflowing_shl_in_place(rhs),
-            "attempt to shift right with overflow"
+            "attempt to shift left with overflow"
         );
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn shl_assign(&mut self, rhs: Total) {
         self.wrapping_shr_in_place(rhs);
     }
@@ -372,14 +372,14 @@ impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> ShlAssign<
 impl<const W: usize, Chunk: ChunkType, Total: TotalBitCounter<Chunk>> ShrAssign<Total>
     for I<W, Chunk>
 {
-    #[cfg(debug_assertions)]
+    #[cfg(overflow_checks)]
     fn shr_assign(&mut self, rhs: Total) {
         assert!(
             self.overflowing_shr_in_place(rhs),
             "attempt to shift right with overflow"
         );
     }
-    #[cfg(not(debug_assertions))]
+    #[cfg(not(overflow_checks))]
     fn shr_assign(&mut self, rhs: Total) {
         self.wrapping_shr_in_place(rhs);
     }
